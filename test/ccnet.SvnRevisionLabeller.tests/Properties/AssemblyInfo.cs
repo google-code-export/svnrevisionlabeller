@@ -1,12 +1,10 @@
-using System.Reflection;
+﻿using System.Reflection;
 
-//
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-//
-[assembly: AssemblyTitle("CruiseControl.NET Subversion Labeller Plug-In")]
-[assembly: AssemblyDescription("Provides Subversion revision labelling for CruiseControl.NET")]
+[assembly: AssemblyTitle("CruiseControl.NET Subversion Labeller Tests")]
+[assembly: AssemblyDescription("Provides test for Subversion revision labelling for CruiseControl.NET")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("David Keaveny")]
 [assembly: AssemblyProduct("")]

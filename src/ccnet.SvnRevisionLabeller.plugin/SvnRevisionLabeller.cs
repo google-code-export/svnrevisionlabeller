@@ -4,7 +4,7 @@ using Exortech.NetReflector;
 using ThoughtWorks.CruiseControl.Core;
 using ThoughtWorks.CruiseControl.Core.Util;
 
-namespace ccnet.SvnRevisionLabeller.plugin
+namespace ccnet.labeller
 {
 	/// <summary>
 	/// Generates label numbers using the Subversion revision number.
@@ -23,6 +23,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 
 		private int major;
 		private int minor;
+		private int build = Int32.MinValue;
 		private string _url;
 		private string executable;
 		private string prefix;
@@ -54,7 +55,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		/// </summary>
 		/// <param name="resultFromLastBuild">IntegrationResult from last build used to determine the next label</param>
 		/// <returns>the label for the new build</returns>
-		public string Generate(IIntegrationResult resultFromLastBuild)
+		public virtual string Generate(IIntegrationResult resultFromLastBuild)
 		{
 			// Get the last revision from the Subversion repository
 			int svnRevision = GetRevision();
@@ -75,7 +76,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		/// Runs the task, given the specified <see cref="IIntegrationResult"/>, in the specified <see cref="IProject"/>.
 		/// </summary>
 		/// <param name="result"></param>
-		public void Run(IIntegrationResult result)
+		public virtual void Run(IIntegrationResult result)
 		{
 			result.Label = Generate(result);
 		}
@@ -115,6 +116,23 @@ namespace ccnet.SvnRevisionLabeller.plugin
 			set
 			{
 				minor = value;
+			}
+		}
+
+		/// <summary>
+		/// Gets or sets the build number.
+		/// </summary>
+		/// <value>The build number.</value>
+		[ReflectorProperty("build", Required=false)]
+		public int Build
+		{
+			get
+			{
+				return build;
+			}
+			set
+			{
+				build = value;
 			}
 		}
 
@@ -208,14 +226,14 @@ namespace ccnet.SvnRevisionLabeller.plugin
 
 		#endregion
 
-		#region Private methods
+		#region Protected methods
 
 		/// <summary>
 		/// Parses the version.
 		/// </summary>
 		/// <param name="revision">The revision.</param>
 		/// <param name="resultFromLastBuild">The result from last build.</param>
-		private Version ParseVersion(int revision, IIntegrationResult resultFromLastBuild)
+		protected virtual Version ParseVersion(int revision, IIntegrationResult resultFromLastBuild)
 		{
 			try
 			{
@@ -235,7 +253,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		/// <summary>
 		/// Gets the latest Subversion revision by checking the last log entry.
 		/// </summary>
-		private int GetRevision()
+		protected virtual int GetRevision()
 		{
 			// Set up the command-line arguments required
 			ProcessArgumentBuilder argBuilder = new ProcessArgumentBuilder();
@@ -267,7 +285,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		/// </summary>
 		/// <param name="urlToBeQuoted">The URL to be quoted.</param>
 		/// <returns>The original URL surrounded with quotation marks</returns>
-		private string Quote(string urlToBeQuoted)
+		protected virtual string Quote(string urlToBeQuoted)
 		{
 			return String.Format(@"""{0}""", urlToBeQuoted);
 		}
@@ -276,7 +294,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		/// Appends the arguments required to authenticate against Subversion.
 		/// </summary>
 		/// <param name="buffer">The argument builder.</param>
-		private void AppendCommonSwitches(ProcessArgumentBuilder buffer)
+		protected virtual void AppendCommonSwitches(ProcessArgumentBuilder buffer)
 		{
 			buffer.AddArgument("--username", Username);
 			buffer.AddArgument("--password", Password);
@@ -289,7 +307,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		/// </summary>
 		/// <param name="arguments">The Subversion client arguments.</param>
 		/// <returns>The results of running the process, including captured output.</returns>
-		private ProcessResult RunProcess(ProcessArgumentBuilder arguments)
+		protected virtual ProcessResult RunProcess(ProcessArgumentBuilder arguments)
 		{
 			ProcessInfo info = new ProcessInfo(executable, arguments.ToString(), null);
 			Log.Debug("Running Subversion with arguments : " + info.Arguments);
@@ -298,6 +316,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 			ProcessResult result = executor.Execute(info);
 			return result;
 		}
+
 		#endregion
 	}
 }
