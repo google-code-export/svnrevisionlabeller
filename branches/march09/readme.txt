@@ -30,7 +30,8 @@ The following sample configuration shows the complete set of fields:
 	<prefix>Test</prefix>
 	<major>8</major>
 	<minor>2</minor>
-	<url>svn://localhost/repository/branches/dev-project</url>
+	<url>https://localhost/repository/branches/dev-project</url>
+	<executable>C:\Svn\Bin\svn.exe</executable>
 	<username>ccnetuser</username>
 	<password>ccnetpassword</password>
 </labeller>

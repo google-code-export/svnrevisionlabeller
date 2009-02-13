@@ -242,7 +242,7 @@ namespace ccnet.SvnRevisionLabeller.plugin
 			argBuilder.AppendArgument("log");
 			argBuilder.AppendArgument("--xml");
 			argBuilder.AppendArgument("--limit 1");
-			argBuilder.AppendArgument(Url);
+			argBuilder.AppendArgument(Quote(Url));
 			if (Username != null && Username.Length > 0 && Password != null && Password.Length > 0)
 			{
 				AppendCommonSwitches(argBuilder); 
@@ -262,9 +262,20 @@ namespace ccnet.SvnRevisionLabeller.plugin
 		}
 
 		/// <summary>
+		/// Ensures that the SVN URL is surrounded with quotation marks, so that paths with 
+		/// spaces in them do not cause an exception.
+		/// </summary>
+		/// <param name="urlToBeQuoted">The URL to be quoted.</param>
+		/// <returns>The original URL surrounded with quotation marks</returns>
+		private string Quote(string urlToBeQuoted)
+		{
+			return String.Format(@"""{0}""", urlToBeQuoted);
+		}
+
+		/// <summary>
 		/// Appends the arguments required to authenticate against Subversion.
 		/// </summary>
-		/// <param name="buffer"><The argument builder./param>
+		/// <param name="buffer">The argument builder.</param>
 		private void AppendCommonSwitches(ProcessArgumentBuilder buffer)
 		{
 			buffer.AddArgument("--username", Username);
