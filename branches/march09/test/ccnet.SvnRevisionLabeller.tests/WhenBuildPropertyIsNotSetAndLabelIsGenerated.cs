@@ -34,4 +34,3 @@ namespace ccnet.labeller.tests
 		private string _label;
 	}
 }
-=

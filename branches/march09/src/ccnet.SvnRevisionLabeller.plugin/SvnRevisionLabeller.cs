@@ -1,37 +1,50 @@
 using System;
+using System.Text.RegularExpressions;
 using System.Xml;
 using Exortech.NetReflector;
 using ThoughtWorks.CruiseControl.Core;
 using ThoughtWorks.CruiseControl.Core.Util;
+using ThoughtWorks.CruiseControl.Remote;
 
 namespace ccnet.labeller
 {
 	/// <summary>
-	/// Generates label numbers using the Subversion revision number.
+	/// Generates CC.NET label numbers using the Microsoft-recommended versioning 
+	/// format (ie. Major.Minor.Build.Revision). The build number is auto-
+	/// incremented for each successful build, and the latest Subversion commit number
+	/// is used to generate the revision. The resultant label is accessible from 
+	/// apps such as MSBuild via the <c>$(CCNetLabel)</c> property , and NAnt via 
+	/// the <c>${CCNetLabel}</c> property.
 	/// </summary>
 	/// <remarks>
+	/// <para>	
 	/// This class was inspired by Jonathan Malek's post on his blog 
 	/// (<a href="http://www.jonathanmalek.com/blog/CruiseControlNETAndSubversionRevisionNumbersUsingNAnt.aspx">CruiseControl.NET and Subversion Revision Numbers using NAnt</a>),
 	/// which used NAnt together with Subversion to retrieve the latest revision number. This plug-in moves it up into 
-	/// CruiseControl.NET itself, so that you can see the latest revision number appearing in CCTray. The label can
-	/// then be retrieved from within NAnt by accessing the property <c>${CCNetLabel}</c>.
+	/// CruiseControl.NET itself, so that you can see the latest revision number appearing in CCTray. 
+	/// </para>
+	/// <para>
+	/// The plugin was then substantially rewritten by fezguy (http://code.google.com/u/fezguy/), incorporating
+	/// the following new features:
+	/// <ul>
+	/// <li>defaults to use the Microsoft recommended versioning format;</li>
+	/// <li>option to increment the build number always, similar to DefaultLabeller [default: false];</li>
+	/// <li>option to reset the build number to 0 after a (major/minor) version change [default: true];</li>
+	/// <li>"pattern" property to support user-defined build number format;</li>
+	/// <li>handles an additional "rebuild" field via "pattern" property which counts builds of same revision;</li>
+	/// <li>option to include a postfix on version;</li>
+	/// <li>handles the quoting of Subversion URLs with spaces</li>
 	/// </remarks>
 	[ReflectorType("svnRevisionLabeller")]
 	public class SvnRevisionLabeller : ILabeller
 	{
-		#region Private members
-
-		private int major;
-		private int minor;
-		private int build = Int32.MinValue;
-		private string _url;
-		private string executable;
-		private string prefix;
-		private string username;
-		private string password;
+		private const string MajorToken = "{major}";
+		private const string MinorToken = "{minor}";
+		private const string BuildToken = "{build}";
+		private const string RevisionToken = "{revision}";
+		private const string RebuildToken = "{rebuild}";
 		private const string RevisionXPath = "/log/logentry/@revision";
-
-		#endregion
+		private int _rebuild;
 
 		#region Constructors
 
@@ -40,219 +53,205 @@ namespace ccnet.labeller
 		/// </summary>
 		public SvnRevisionLabeller()
 		{
-			major = 1;
-			minor = 0;
-			executable = "svn.exe";
-			prefix = String.Empty;
+			Major = 1;
+			Minor = 0;
+			Build = -1;
+			Executable = "svn.exe";
+			ResetBuildAfterVersionChange = true;
+
+			_rebuild = 0;
 		}
 
 		#endregion
 
-		#region Public methods
+		#region Properties
 
 		/// <summary>
-		/// Returns the label to use for the current build.
+		/// Gets or sets the major version.
 		/// </summary>
-		/// <param name="resultFromLastBuild">IntegrationResult from last build used to determine the next label</param>
-		/// <returns>the label for the new build</returns>
-		public virtual string Generate(IIntegrationResult resultFromLastBuild)
-		{
-			// Get the last revision from the Subversion repository
-			int svnRevision = GetRevision();
-
-			// Get the last revision from CruiseControl
-			Version version = ParseVersion(svnRevision, resultFromLastBuild);
-
-			// If the revision number hasn't changed (because no new check-ins have been made), increment the build number;
-			// Otherwise, reset the build number to 0
-			int revision = (svnRevision == version.Build) ? version.Revision + 1 : 0;
-
-			// Construct a new version number, adding any specified prefix
-			Version newVersion = new Version(major, minor, svnRevision, revision);
-			return prefix + newVersion;
-		}
+		/// <value>The major version number.</value>
+		[ReflectorProperty("major", Required = false)]
+		public int Major { get; set; }
 
 		/// <summary>
-		/// Runs the task, given the specified <see cref="IIntegrationResult"/>, in the specified <see cref="IProject"/>.
+		/// Gets or sets the minor version.
 		/// </summary>
-		/// <param name="result"></param>
-		public virtual void Run(IIntegrationResult result)
-		{
-			result.Label = Generate(result);
-		}
-
-		#endregion
-
-		#region Public properties
-
-		/// <summary>
-		/// Gets or sets the major build number.
-		/// </summary>
-		/// <value>The major build number.</value>
-		[ReflectorProperty("major", Required=false)]
-		public int Major
-		{
-			get
-			{
-				return major;
-			}
-			set
-			{
-				major = value;
-			}
-		}
-
-		/// <summary>
-		/// Gets or sets the minor build number.
-		/// </summary>
-		/// <value>The minor build number.</value>
-		[ReflectorProperty("minor", Required=false)]
-		public int Minor
-		{
-			get
-			{
-				return minor;
-			}
-			set
-			{
-				minor = value;
-			}
-		}
+		/// <value>The minor version number.</value>
+		[ReflectorProperty("minor", Required = false)]
+		public int Minor { get; set; }
 
 		/// <summary>
 		/// Gets or sets the build number.
 		/// </summary>
 		/// <value>The build number.</value>
-		[ReflectorProperty("build", Required=false)]
-		public int Build
-		{
-			get
-			{
-				return build;
-			}
-			set
-			{
-				build = value;
-			}
-		}
+		[ReflectorProperty("build", Required = false)]
+		public int Build { get; set; }
 
 		/// <summary>
-		/// Gets or sets the repository URL from which the <c>svn log</c> command will be run.
+		/// Gets or sets the version format pattern.
 		/// </summary>
-		/// <value>The repository.</value>
-		[ReflectorProperty("url", Required = true)]
-		public string Url
-		{
-			get
-			{
-				return _url;
-			}
-			set
-			{
-				_url = value;
-			}
-		}
+		/// <value>The pattern.</value>
+		[ReflectorProperty("pattern", Required = false)]
+		public string Pattern { get; set; }
 
 		/// <summary>
-		/// Gets or sets the Subversion client executable.
+		/// Gets or sets a value indicating whether the build number should 
+		/// increment on failed build.
 		/// </summary>
-		/// <value>The path to the executable.</value>
+		/// <value><c>true</c> if the build number should increment on failure; otherwise, <c>false</c>.</value>
+		[ReflectorProperty("incrementOnFailure", Required = false)]
+		public bool IncrementOnFailure { get; set; }
+
+		/// <summary>
+		/// Gets or sets a value indicating whether to reset build number after a version change.
+		/// </summary>
+		/// <value>
+		/// 	<c>true</c> if the build number should be reset after a version change; otherwise, <c>false</c>.
+		/// </value>
+		[ReflectorProperty("resetBuildAfterVersionChange", Required = false)]
+		public bool ResetBuildAfterVersionChange { get; set; }
+		/// <summary>
+		/// Gets or sets the path to the Subversion executable.
+		/// </summary>
 		/// <remarks>
-		/// If the value is not supplied, the task will expect to find <c>svn.exe</c> in the <c>PATH</c> environment variable.
+		/// By default, the labeller checks the <c>PATH</c> environment variable.
 		/// </remarks>
-		[ReflectorProperty("executable", Required=false)]
-		public string Executable
-		{
-			get
-			{
-				return executable;
-			}
-			set
-			{
-				executable = value;
-			}
-		}
+		/// <value>The executable.</value>
+		[ReflectorProperty("executable", Required = false)]
+		public string Executable { get; set; }
 
 		/// <summary>
-		/// Gets or sets an optional prefix for the build label.
+		/// Gets or sets the prefix to prepend to the version label.
 		/// </summary>
-		/// <value>A string to prefix the version number with.</value>
-		[ReflectorProperty("prefix", Required=false)]
-		public string Prefix
-		{
-			get 
-			{ 
-				return prefix; 
-			}
-			set 
-			{
-				prefix = value;
-			}
-		}
+		/// <value>The text that will precede the version label.</value>
+		[ReflectorProperty("prefix", Required = false)]
+		public string Prefix { get; set; }
 
 		/// <summary>
-		/// Gets or sets the username to access SVN repository.
+		/// Gets or sets the suffix to append to the version label.
 		/// </summary>
-		/// <value>The repository.</value>
+		/// <value>The text that will follow the version label.</value>
+		[ReflectorProperty("postfix", Required = false)]
+		public string Suffix { get; set; }
+
+		/// <summary>
+		/// Gets or sets the username that will be used to access the Subversion repository.
+		/// </summary>
+		/// <value>The username.</value>
 		[ReflectorProperty("username", Required = false)]
-		public string Username
-		{
-			get
-			{
-				return username;
-			}
-			set
-			{
-				username = value;
-			}
-		}
+		public string Username { get; set; }
 
 		/// <summary>
-		/// Gets or sets the password to access SVN repository.
+		/// Gets or sets the password that will be used to access the Subversion repository.
 		/// </summary>
-		/// <value>The repository.</value>
+		/// <value>The password.</value>
 		[ReflectorProperty("password", Required = false)]
-		public string Password
-		{
-			get
-			{
-				return password;
-			}
-			set
-			{
-				password = value;
-			}
-		}
+		public string Password { get; set; }
+
+		/// <summary>
+		/// Gets or sets the URL that will be used to access the Subversion repository.
+		/// </summary>
+		/// <value>The URL.</value>
+		[ReflectorProperty("url", Required = true)]
+		public string Url { get; set; }
 
 		#endregion
 
-		#region Protected methods
+		#region Methods
 
 		/// <summary>
-		/// Parses the version.
+		/// Runs the task, given the specified <see cref="IIntegrationResult"/>, in the specified <see cref="IProject"/>.
 		/// </summary>
-		/// <param name="revision">The revision.</param>
-		/// <param name="resultFromLastBuild">The result from last build.</param>
-		protected virtual Version ParseVersion(int revision, IIntegrationResult resultFromLastBuild)
+		/// <param name="result">The label for the current build.</param>
+		public void Run(IIntegrationResult result)
 		{
-			try
+			result.Label = Generate(result);
+		}
+
+		/// <summary>
+		/// Returns the label to use for the current build.
+		/// </summary>
+		/// <param name="resultFromLastBuild">IntegrationResult from last build used to determine the next label.</param>
+		/// <returns>The label for the current build.</returns>
+		public string Generate(IIntegrationResult resultFromLastBuild)
+		{
+			// get last revision from Subversion
+			int revision = GetRevision();
+
+			// get last revision from CC
+			Version lastVersion = ParseVersion(revision, resultFromLastBuild);
+
+			int build = 0;
+
+			// check if the build property has been explicitly set
+			if (Build > -1)
 			{
-				string label = resultFromLastBuild.LastSuccessfulIntegrationLabel;
-				if (prefix.Length > 0)
+				// use the user-defined build number
+				build = Build;
+			}
+			else
+			{
+				// determine if one or both major/minor version has changed
+				if ((Major > lastVersion.Major) || (Minor > lastVersion.Minor))
 				{
-					label = label.Replace(prefix, String.Empty).TrimStart('_');
+					// if we're resetting, the build is already 0
+					// otherwise we'll want to increment build number
+					if (!ResetBuildAfterVersionChange)
+					{
+						// keep incrementing
+						build = lastVersion.Build + 1;
+					}
 				}
-				return new Version(label);
+				else
+				{
+					// build will at least be equal to last build
+					build = lastVersion.Build;
+
+					// determine if last build was success, or if the user wants to 
+					// increment build number always
+					if (((resultFromLastBuild.LastIntegrationStatus == IntegrationStatus.Success) ||
+						(this.IncrementOnFailure)) && (revision > lastVersion.Revision))
+					{
+						// increment the build number
+						build = lastVersion.Build + 1;
+					}
+				}
 			}
-			catch (SystemException)
+
+			// check to see if "forced" applies
+			if (revision == lastVersion.Revision)
 			{
-				return new Version(major, minor, revision, 0);
+				_rebuild++;
 			}
+
+			string version;
+
+			// check if pattern specified
+			if (String.IsNullOrEmpty(this.Pattern))
+			{
+				// set default (Microsoft) version format (major.minor.build.revision)
+				version = String.Format("{0}.{1}.{2}.{3}", this.Major, this.Minor, build, revision);
+			}
+			else
+			{
+				// create pattern for String.Format() 
+				string format = this.Pattern.Replace(MajorToken, "{0}")
+					.Replace(MinorToken, "{1}")
+					.Replace(BuildToken, "{2}")
+					.Replace(RevisionToken, "{3}")
+					.Replace(RebuildToken, "{4}");
+
+				version = String.Format(format, this.Major, this.Minor, build, revision, _rebuild);
+			}
+
+			// retun new version with prefix and postfix
+			return String.Format("{0}{1}{2}", this.Prefix, version, this.Suffix);
 		}
 
 		/// <summary>
 		/// Gets the latest Subversion revision by checking the last log entry.
 		/// </summary>
+		/// <returns>The last revision number.</returns>
 		protected virtual int GetRevision()
 		{
 			// Set up the command-line arguments required
@@ -260,14 +259,16 @@ namespace ccnet.labeller
 			argBuilder.AppendArgument("log");
 			argBuilder.AppendArgument("--xml");
 			argBuilder.AppendArgument("--limit 1");
-			argBuilder.AppendArgument(Quote(Url));
-			if (Username != null && Username.Length > 0 && Password != null && Password.Length > 0)
+			argBuilder.AddArgument(Quote(Url));
+
+			// determine whether to add username/password
+			if (!String.IsNullOrEmpty(this.Username))
 			{
 				AppendCommonSwitches(argBuilder); 
 			}
 
 			// Run the svn log command and capture the results
-			ProcessResult result = RunProcess(argBuilder);
+			ProcessResult result = RunSvnProcess(argBuilder);
 			Log.Debug("Received XML : " + result.StandardOutput);
 
 			// Load the results into an XML document
@@ -303,18 +304,99 @@ namespace ccnet.labeller
 		}
 
 		/// <summary>
-		/// Runs the Subversion process using the specified arguments.
+		/// Runs the Subversion process.
 		/// </summary>
-		/// <param name="arguments">The Subversion client arguments.</param>
-		/// <returns>The results of running the process, including captured output.</returns>
-		protected virtual ProcessResult RunProcess(ProcessArgumentBuilder arguments)
+		/// <param name="arguments">The command-line arguments.</param>
+		/// <returns>The results of executing the process including output.</returns>
+		protected virtual ProcessResult RunSvnProcess(ProcessArgumentBuilder arguments)
 		{
-			ProcessInfo info = new ProcessInfo(executable, arguments.ToString(), null);
+			// prepare process
+			ProcessInfo info = new ProcessInfo(this.Executable, arguments.ToString());
 			Log.Debug("Running Subversion with arguments : " + info.Arguments);
 
+			// execute process
 			ProcessExecutor executor = new ProcessExecutor();
 			ProcessResult result = executor.Execute(info);
+
+			// return results
 			return result;
+		}
+
+		/// <summary>
+		/// Parses a version string.
+		/// </summary>
+		/// <param name="revision">The current revision.</param>
+		/// <param name="resultFromLastBuild">The result from last build.</param>
+		/// <returns>A <see cref="System.Version"/> populated with the previous version info.</returns>
+		protected virtual Version ParseVersion(int revision, IIntegrationResult resultFromLastBuild)
+		{
+			string pattern = null;
+
+			// determine if pattern is to be used
+			if (!String.IsNullOrEmpty(this.Pattern))
+			{
+				// convert pattern to regex to be used to reconstitute version parts
+				pattern = Pattern
+					.Replace(MajorToken, "(?<major>[0-9]+)")
+					.Replace(MinorToken, "(?<minor>[0-9]+)")
+					.Replace(BuildToken, "(?<build>[0-9]+)")
+					.Replace(RevisionToken, "(?<revision>[0-9]+)")
+					.Replace(RebuildToken, "(?<rebuild>[0-9]+)");
+			}
+
+			// get previous build label
+			string label = resultFromLastBuild.LastSuccessfulIntegrationLabel;
+
+			// check if prefix is set
+			if (!String.IsNullOrEmpty(Prefix))
+			{
+				// remove prefix from previous label
+				label = label.Replace(Prefix, String.Empty);
+			}
+
+			// check if postfix is set
+			if (!String.IsNullOrEmpty(Suffix))
+			{
+				// remove postfix from previous label
+				label = label.Replace(Suffix, String.Empty);
+			}
+
+			try
+			{
+				// create new version
+				Version version;
+
+				// determine if pattern is being used
+				if (String.IsNullOrEmpty(pattern))
+				{
+					// create version based on string
+					version = new Version(label);
+				}
+				else
+				{
+					// extract version components
+					Regex regex = new Regex(pattern);
+					Match match = regex.Match(label);
+
+					int major = Convert.ToInt32(match.Groups["major"].Value);
+					int minor = Convert.ToInt32(match.Groups["minor"].Value);
+					int build = Convert.ToInt32(match.Groups["build"].Value);
+					int rev = Convert.ToInt32(match.Groups["revision"].Value);
+
+					// special case for "forced"
+					Int32.TryParse(match.Groups["rebuild"].Value, out _rebuild);
+
+					// create version based on components
+					version = new Version(major, minor, build, rev);
+				}
+
+				return version;
+			}
+			catch (SystemException)
+			{
+				// uh oh! fake it out
+				return new Version(Major, Minor, 0, revision);
+			}
 		}
 
 		#endregion
