@@ -25,8 +25,6 @@ Below is a sample configuration for svnRevisionLabeller, showing the mandatory f
 The following sample configuration shows the complete set of fields:
 
 <labeller type="svnRevisionLabeller">
-	<prefix>PreDeployment-</prefix>
-	<suffix>-test</suffix>
 	<major>8</major>
 	<minor>2</minor>
 	<build>0</build>
