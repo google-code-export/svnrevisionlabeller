@@ -1,4 +1,4 @@
-namespace ccnet.labeller.tests
+namespace CcNet.Labeller.Tests
 {
 	public class SvnRevisionLabellerStub : SvnRevisionLabeller
 	{

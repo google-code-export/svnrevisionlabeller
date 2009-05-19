@@ -7,7 +7,7 @@ using ThoughtWorks.CruiseControl.Remote;
 namespace CcNet.Labeller.Tests
 {
 	[TestFixture]
-	public class WhenRevisionPropertyIsNotSetAndLabelIsGeneratedAfterASuccessfulBuild : Specification
+	public class WhenCustomPatternIsSet : Specification
 	{
 		protected override void Arrange()
 		{
@@ -22,7 +22,10 @@ namespace CcNet.Labeller.Tests
 			_mockery.ReplayAll();
 	
 			_labeller = new SvnRevisionLabellerStub();
-			_labeller.SetRevision(105);
+			_labeller.SetRevision(5);
+			_labeller.Pattern = "Custom {major}.{minor}.4.{revision} label";
+			_labeller.Major = 2;
+			_labeller.Minor = 3;
 		}
 
 		protected override void Act()
@@ -31,9 +34,9 @@ namespace CcNet.Labeller.Tests
 		}
 
 		[Test]
-		public void RevisionNumberIsSetToTheCurrentSvnRevisionNumber()
+		public void ThePatternIsUsedToGenerateTheLabel()
 		{
-			Assert.That(_label, Is.EqualTo("1.0.0.105"));
+			Assert.That(_label, Is.EqualTo("Custom 2.3.4.5 label"));
 		}
 
 		private SvnRevisionLabellerStub _labeller;

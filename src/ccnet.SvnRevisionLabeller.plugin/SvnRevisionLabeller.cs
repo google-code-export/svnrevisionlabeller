@@ -1,12 +1,13 @@
 using System;
 using System.Text.RegularExpressions;
 using System.Xml;
+using System.Xml.XPath;
 using Exortech.NetReflector;
 using ThoughtWorks.CruiseControl.Core;
 using ThoughtWorks.CruiseControl.Core.Util;
 using ThoughtWorks.CruiseControl.Remote;
 
-namespace ccnet.labeller
+namespace CcNet.Labeller
 {
 	/// <summary>
 	/// Generates CC.NET label numbers using the Microsoft-recommended versioning 
@@ -17,7 +18,7 @@ namespace ccnet.labeller
 	/// the <c>${CCNetLabel}</c> property.
 	/// </summary>
 	/// <remarks>
-	/// <para>	
+	/// <para>
 	/// This class was inspired by Jonathan Malek's post on his blog 
 	/// (<a href="http://www.jonathanmalek.com/blog/CruiseControlNETAndSubversionRevisionNumbersUsingNAnt.aspx">CruiseControl.NET and Subversion Revision Numbers using NAnt</a>),
 	/// which used NAnt together with Subversion to retrieve the latest revision number. This plug-in moves it up into 
@@ -34,6 +35,8 @@ namespace ccnet.labeller
 	/// <li>handles an additional "rebuild" field via "pattern" property which counts builds of same revision;</li>
 	/// <li>option to include a postfix on version;</li>
 	/// <li>handles the quoting of Subversion URLs with spaces</li>
+	/// </ul>
+	/// </para>
 	/// </remarks>
 	[ReflectorType("svnRevisionLabeller")]
 	public class SvnRevisionLabeller : ILabeller
@@ -56,6 +59,7 @@ namespace ccnet.labeller
 			Major = 1;
 			Minor = 0;
 			Build = -1;
+			Pattern = "{major}.{minor}.{build}.{revision}";
 			Executable = "svn.exe";
 			ResetBuildAfterVersionChange = true;
 
@@ -110,6 +114,7 @@ namespace ccnet.labeller
 		/// </value>
 		[ReflectorProperty("resetBuildAfterVersionChange", Required = false)]
 		public bool ResetBuildAfterVersionChange { get; set; }
+
 		/// <summary>
 		/// Gets or sets the path to the Subversion executable.
 		/// </summary>
@@ -119,20 +124,6 @@ namespace ccnet.labeller
 		/// <value>The executable.</value>
 		[ReflectorProperty("executable", Required = false)]
 		public string Executable { get; set; }
-
-		/// <summary>
-		/// Gets or sets the prefix to prepend to the version label.
-		/// </summary>
-		/// <value>The text that will precede the version label.</value>
-		[ReflectorProperty("prefix", Required = false)]
-		public string Prefix { get; set; }
-
-		/// <summary>
-		/// Gets or sets the suffix to append to the version label.
-		/// </summary>
-		/// <value>The text that will follow the version label.</value>
-		[ReflectorProperty("postfix", Required = false)]
-		public string Suffix { get; set; }
 
 		/// <summary>
 		/// Gets or sets the username that will be used to access the Subversion repository.
@@ -151,7 +142,7 @@ namespace ccnet.labeller
 		/// <summary>
 		/// Gets or sets the URL that will be used to access the Subversion repository.
 		/// </summary>
-		/// <value>The URL.</value>
+		/// <value>A string representing the URL of the Subversion repository.</value>
 		[ReflectorProperty("url", Required = true)]
 		public string Url { get; set; }
 
@@ -173,6 +164,8 @@ namespace ccnet.labeller
 		/// </summary>
 		/// <param name="resultFromLastBuild">IntegrationResult from last build used to determine the next label.</param>
 		/// <returns>The label for the current build.</returns>
+		/// <exception cref="System.ArgumentException">Thrown when an error occurs while formatting the version number using the various formatting tokens.</exception>
+		/// <exception cref="System.ArgumentNullException">Thrown when an error occurs while formatting the version number and an argument has not been specified.</exception>
 		public string Generate(IIntegrationResult resultFromLastBuild)
 		{
 			// get last revision from Subversion
@@ -210,7 +203,7 @@ namespace ccnet.labeller
 					// determine if last build was success, or if the user wants to 
 					// increment build number always
 					if (((resultFromLastBuild.LastIntegrationStatus == IntegrationStatus.Success) ||
-						(this.IncrementOnFailure)) && (revision > lastVersion.Revision))
+						IncrementOnFailure) && (revision > lastVersion.Revision))
 					{
 						// increment the build number
 						build = lastVersion.Build + 1;
@@ -224,33 +217,23 @@ namespace ccnet.labeller
 				_rebuild++;
 			}
 
-			string version;
+			// Replace the tokens in the pattern with the appropriate string formatting placeholders
+			string format = Pattern.Replace(MajorToken, "{0}")
+				.Replace(MinorToken, "{1}")
+				.Replace(BuildToken, "{2}")
+				.Replace(RevisionToken, "{3}")
+				.Replace(RebuildToken, "{4}");
 
-			// check if pattern specified
-			if (String.IsNullOrEmpty(this.Pattern))
-			{
-				// set default (Microsoft) version format (major.minor.build.revision)
-				version = String.Format("{0}.{1}.{2}.{3}", this.Major, this.Minor, build, revision);
-			}
-			else
-			{
-				// create pattern for String.Format() 
-				string format = this.Pattern.Replace(MajorToken, "{0}")
-					.Replace(MinorToken, "{1}")
-					.Replace(BuildToken, "{2}")
-					.Replace(RevisionToken, "{3}")
-					.Replace(RebuildToken, "{4}");
-
-				version = String.Format(format, this.Major, this.Minor, build, revision, _rebuild);
-			}
-
-			// retun new version with prefix and postfix
-			return String.Format("{0}{1}{2}", this.Prefix, version, this.Suffix);
+			return String.Format(format, Major, Minor, build, revision, _rebuild);
 		}
 
 		/// <summary>
 		/// Gets the latest Subversion revision by checking the last log entry.
 		/// </summary>
+		/// <remarks>
+		/// If an error occurs while parsing the Subversion log, the revision number will be returned
+		/// as a <c>0</c>.
+		/// </remarks>
 		/// <returns>The last revision number.</returns>
 		protected virtual int GetRevision()
 		{
@@ -262,7 +245,7 @@ namespace ccnet.labeller
 			argBuilder.AddArgument(Quote(Url));
 
 			// determine whether to add username/password
-			if (!String.IsNullOrEmpty(this.Username))
+			if (!String.IsNullOrEmpty(Username))
 			{
 				AppendCommonSwitches(argBuilder); 
 			}
@@ -271,13 +254,32 @@ namespace ccnet.labeller
 			ProcessResult result = RunSvnProcess(argBuilder);
 			Log.Debug("Received XML : " + result.StandardOutput);
 
-			// Load the results into an XML document
-			XmlDocument xml = new XmlDocument();
-			xml.LoadXml(result.StandardOutput);
+			try
+			{
+				// Load the results into an XML document
+				XmlDocument xml = new XmlDocument();
+				xml.LoadXml(result.StandardOutput);
 
-			// Retrieve the revision number from the XML
-			XmlNode node = xml.SelectSingleNode(RevisionXPath);
-			return Convert.ToInt32(node.InnerText);
+				// Retrieve the revision number from the XML
+				XmlNode node = xml.SelectSingleNode(RevisionXPath);
+				return Convert.ToInt32(node.InnerText);
+			}
+			catch (XmlException)
+			{
+				return 0;
+			}
+			catch (XPathException)
+			{
+				return 0;
+			}
+			catch (OverflowException)
+			{
+				return 0;
+			}
+			catch (FormatException)
+			{
+				return 0;
+			}
 		}
 
 		/// <summary>
@@ -311,7 +313,7 @@ namespace ccnet.labeller
 		protected virtual ProcessResult RunSvnProcess(ProcessArgumentBuilder arguments)
 		{
 			// prepare process
-			ProcessInfo info = new ProcessInfo(this.Executable, arguments.ToString());
+			ProcessInfo info = new ProcessInfo(Executable, arguments.ToString());
 			Log.Debug("Running Subversion with arguments : " + info.Arguments);
 
 			// execute process
@@ -333,7 +335,7 @@ namespace ccnet.labeller
 			string pattern = null;
 
 			// determine if pattern is to be used
-			if (!String.IsNullOrEmpty(this.Pattern))
+			if (!String.IsNullOrEmpty(Pattern))
 			{
 				// convert pattern to regex to be used to reconstitute version parts
 				pattern = Pattern
@@ -346,20 +348,6 @@ namespace ccnet.labeller
 
 			// get previous build label
 			string label = resultFromLastBuild.LastSuccessfulIntegrationLabel;
-
-			// check if prefix is set
-			if (!String.IsNullOrEmpty(Prefix))
-			{
-				// remove prefix from previous label
-				label = label.Replace(Prefix, String.Empty);
-			}
-
-			// check if postfix is set
-			if (!String.IsNullOrEmpty(Suffix))
-			{
-				// remove postfix from previous label
-				label = label.Replace(Suffix, String.Empty);
-			}
 
 			try
 			{

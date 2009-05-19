@@ -1,7 +1,7 @@
 ﻿using NUnit.Framework;
 using Rhino.Mocks;
 
-namespace ccnet.labeller.tests
+namespace CcNet.Labeller.Tests
 {
 	/// <summary>
 	/// Provides a base implementation for Arrange-Act-Assert testing.
@@ -32,7 +32,7 @@ namespace ccnet.labeller.tests
 		/// <value>The mock repository.</value>
 		protected MockRepository Mockery
 		{
-			get { return _mockery; }	
+			get { return _mockery; }
 		}
 
 		/// <summary>
