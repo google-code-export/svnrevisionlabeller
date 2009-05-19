@@ -255,7 +255,7 @@ namespace CcNet.Labeller
 			argBuilder.AddArgument(Quote(Url));
 
 			// use the trust switch if user has indicated such
-			if (TrustServerCert)
+			if (TrustServerCertificate)
 			{
 				argBuilder.AppendArgument("--trust-server-cert");
 			}
