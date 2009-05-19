@@ -31,6 +31,7 @@ namespace CcNet.Labeller
 	/// <li>defaults to use the Microsoft recommended versioning format;</li>
 	/// <li>option to increment the build number always, similar to DefaultLabeller [default: false];</li>
 	/// <li>option to reset the build number to 0 after a (major/minor) version change [default: true];</li>
+	/// <li>option to use "--trust-server-cert" command line parameter (Subversion v1.6+)</li>
 	/// <li>"pattern" property to support user-defined build number format;</li>
 	/// <li>handles an additional "rebuild" field via "pattern" property which counts builds of same revision;</li>
 	/// <li>option to include a postfix on version;</li>
@@ -146,6 +147,15 @@ namespace CcNet.Labeller
 		[ReflectorProperty("url", Required = true)]
 		public string Url { get; set; }
 
+		/// <summary>
+		/// Gets or sets a value indicating whether the server certificate should 
+		/// be trusted blindly. This is useful for server installations of v1.6 or
+		/// greater with self-signed SSL certificates.
+		/// </summary>
+		/// <value><c>true</c> if the server's SSL certificate should be trusted; otherwise, <c>false</c>.</value>
+		[ReflectorProperty("trustServerCertificate", Required = false)]
+		public bool TrustServerCertificate { get; set; }
+
 		#endregion
 
 		#region Methods
@@ -243,6 +253,12 @@ namespace CcNet.Labeller
 			argBuilder.AppendArgument("--xml");
 			argBuilder.AppendArgument("--limit 1");
 			argBuilder.AddArgument(Quote(Url));
+
+			// use the trust switch if user has indicated such
+			if (TrustServerCert)
+			{
+				argBuilder.AppendArgument("--trust-server-cert");
+			}
 
 			// determine whether to add username/password
 			if (!String.IsNullOrEmpty(Username))
